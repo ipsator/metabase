@@ -157,27 +157,19 @@
   "UTC"
   (tu/db-timezone-id))
 
-;; Query cancellation test
+;; Query cancellation test, needs careful coordination between the query thread, cancellation thread to ensure
+;; everything works correctly together
 (datasets/expect-with-engine :presto
-  [false false true false true true]
-  (data/with-db (data/get-or-create-database! defs/test-data)
-    (let [called-cancel?             (promise)
-          called-query?              (promise)
-          pause-query                (promise)
-          before-query-called-cancel (realized? called-cancel?)
-          before-query-called-query  (realized? called-query?)
-          query-future               (future
-                                       (with-redefs [presto/fetch-presto-results! (fn [_ _ _] (deliver called-query? true) @pause-query)
-                                                     http/delete                  (fn [_ _] (deliver called-cancel? true))]
-                                         (data/run-query checkins
-                                           (ql/aggregation (ql/count)))))]
-      [before-query-called-cancel
-       before-query-called-query
-       (deref called-query? 120000 ::query-never-called)
-       (realized? called-cancel?)
-       (do
-         (future-cancel query-future)
-         (deref called-cancel? 120000 ::cancel-never-called))
-       (do
-         (deliver pause-query true)
-         true)])))
+  [false ;; Ensure the query promise hasn't fired yet
+   false ;; Ensure the cancellation promise hasn't fired yet
+   true  ;; Was query called?
+   false ;; Cancel should not have been called yet
+   true  ;; Cancel should have been called now
+   true  ;; The paused query can proceed now
+   ]
+  (tu/call-with-paused-query
+   (fn [query-thunk called-query? called-cancel? pause-query]
+     (future
+       (with-redefs [presto/fetch-presto-results! (fn [_ _ _] (deliver called-query? true) @pause-query)
+                     http/delete                  (fn [_ _] (deliver called-cancel? true))]
+         (query-thunk))))))
