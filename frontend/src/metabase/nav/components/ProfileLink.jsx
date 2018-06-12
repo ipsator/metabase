@@ -167,7 +167,7 @@ export default class ProfileLink extends Component {
                     onClick={this.openModal.bind(this, "about")}
                     className="Dropdown-item block text-white no-decoration"
                   >
-                    {t`About Metabase`}
+                    {t`About Ipsator`}
                   </a>
                 </li>
 
@@ -198,7 +198,7 @@ export default class ProfileLink extends Component {
                 <LogoIcon width={48} height={48} />
               </div>
               <h2 style={{ fontSize: "1.75em" }} className="text-dark">
-                {t`Thanks for using`} Metabase!
+                {t`Thanks for using`} Ipsator!
               </h2>
               <div className="pt2">
                 <h3 className="text-dark mb1">
@@ -223,8 +223,8 @@ export default class ProfileLink extends Component {
               className="p2 h5 text-centered text-grey-3 border-top"
             >
               <span className="block">
-                <span className="text-bold">Metabase</span>{" "}
-                {t`is a Trademark of`} Metabase, Inc
+                <span className="text-bold">Ipsator</span>{" "}
+                {t`is a Trademark of`} Ipsator Analytics Pvt Ltd
               </span>
               <span>{t`and is built with care in San Francisco, CA`}</span>
             </div>
