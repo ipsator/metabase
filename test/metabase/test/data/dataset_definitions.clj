@@ -1,7 +1,8 @@
 (ns metabase.test.data.dataset-definitions
   "Definitions of various datasets for use in tests with `with-temp-db`."
   (:require [clojure.tools.reader.edn :as edn]
-            [metabase.test.data.interface :as di])
+            [metabase.test.data.interface :as di]
+            [metabase.util.date :as du])
   (:import java.sql.Time
            java.util.Calendar))
 
@@ -77,6 +78,15 @@
                          (mapv #(conj % nil) rows))
                        (di/slurp-edn-table-def "test-data")))
 
+(di/def-database-definition test-data-with-timezones
+  (di/update-table-def "users"
+                       (fn [table-def]
+                         [(first table-def)
+                          {:field-name "last_login", :base-type :type/DateTimeWithTZ}
+                          (peek table-def)])
+                       identity
+                       (di/slurp-edn-table-def "test-data")))
+
 (def test-data-map
   "Converts data from `test-data` to a map of maps like the following:
 
@@ -93,3 +103,19 @@
   in the data-map `M`."
   [m table column]
   (mapv #(get % column) (get m table)))
+
+;; Takes the `test-data` dataset and adds a `created_by` column to the users table that is self referencing
+(di/def-database-definition test-data-self-referencing-user
+  (di/update-table-def "users"
+                       (fn [table-def]
+                         (conj table-def {:field-name "created_by", :base-type :type/Integer, :fk :users}))
+                       (fn [rows]
+                         (mapv (fn [[username last-login password-text] idx]
+                                 [username last-login password-text (if (= 1 idx)
+                                                                      idx
+                                                                      (dec idx))])
+                               rows
+                               (iterate inc 1)))
+                       (for [[table-name :as orig-def] (di/slurp-edn-table-def "test-data")
+                             :when (= table-name "users")]
+                         orig-def)))

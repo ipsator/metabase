@@ -7,6 +7,7 @@
             [clojure
              [set :as set]
              [string :as str]]
+            [clojure.tools.logging :as log]
             [honeysql
              [core :as hsql]
              [helpers :as h]]
@@ -17,15 +18,19 @@
             [metabase.driver.generic-sql :as sql]
             [metabase.driver.generic-sql.query-processor :as sqlqp]
             [metabase.driver.generic-sql.util.unprepare :as unprepare]
+            [metabase.models.database :refer [Database]]
             [metabase.query-processor.util :as qputil]
             [metabase.util
+             [date :as du]
              [honeysql-extensions :as hx]
-             [ssh :as ssh]])
+             [i18n :refer [tru]]
+             [ssh :as ssh]]
+            [toucan.db :as db])
   (:import java.sql.Time
-           java.util.Date
-           [metabase.query_processor.interface TimeValue]))
+           java.util.Date))
 
 (defrecord PrestoDriver []
+  :load-ns true
   clojure.lang.Named
   (getName [_] "Presto"))
 
@@ -33,6 +38,7 @@
 
 (defn- details->uri
   [{:keys [ssl host port]} path]
+  {:pre [(string? host) (seq host) ((some-fn integer? string?) port)]}
   (str (if ssl "https" "http") "://" host ":" port path))
 
 (defn- details->request [{:keys [user password catalog report-timezone]}]
@@ -47,16 +53,16 @@
 
 (defn- parse-time-with-tz [s]
   ;; Try parsing with offset first then with full ZoneId
-  (or (u/ignore-exceptions (u/parse-date "HH:mm:ss.SSS ZZ" s))
-      (u/parse-date "HH:mm:ss.SSS ZZZ" s)))
+  (or (u/ignore-exceptions (du/parse-date "HH:mm:ss.SSS ZZ" s))
+      (du/parse-date "HH:mm:ss.SSS ZZZ" s)))
 
 (defn- parse-timestamp-with-tz [s]
   ;; Try parsing with offset first then with full ZoneId
-  (or (u/ignore-exceptions (u/parse-date "yyyy-MM-dd HH:mm:ss.SSS ZZ" s))
-      (u/parse-date "yyyy-MM-dd HH:mm:ss.SSS ZZZ" s)))
+  (or (u/ignore-exceptions (du/parse-date "yyyy-MM-dd HH:mm:ss.SSS ZZ" s))
+      (du/parse-date "yyyy-MM-dd HH:mm:ss.SSS ZZZ" s)))
 
 (def ^:private presto-date-time-formatter
-  (u/->DateTimeFormatter "yyyy-MM-dd HH:mm:ss.SSS"))
+  (du/->DateTimeFormatter "yyyy-MM-dd HH:mm:ss.SSS"))
 
 (defn- parse-presto-time
   "Parsing time from presto using a specific formatter rather than the
@@ -64,7 +70,7 @@
   performance is important"
   [time-str]
   (->> time-str
-       (u/parse-date :hour-minute-second-ms)
+       (du/parse-date :hour-minute-second-ms)
        tcoerce/to-long
        Time.))
 
@@ -73,7 +79,7 @@
     #"decimal.*"                bigdec
     #"time"                     parse-presto-time
     #"time with time zone"      parse-time-with-tz
-    #"timestamp"                (partial u/parse-date
+    #"timestamp"                (partial du/parse-date
                                          (if-let [report-tz (and report-timezone
                                                                  (time/time-zone-for-id report-timezone))]
                                            (tformat/with-zone presto-date-time-formatter report-tz)
@@ -84,9 +90,10 @@
 (defn- parse-presto-results [report-timezone columns data]
   (let [parsers (map (comp #(field-type->parser report-timezone %) :type) columns)]
     (for [row data]
-      (for [[value parser] (partition 2 (interleave row parsers))]
-        (when (some? value)
-          (parser value))))))
+      (vec
+       (for [[value parser] (partition 2 (interleave row parsers))]
+         (when (some? value)
+           (parser value)))))))
 
 (defn- fetch-presto-results! [details {prev-columns :columns, prev-rows :rows} uri]
   (let [{{:keys [columns data nextUri error]} :body} (http/get uri (assoc (details->request details) :as :json))]
@@ -101,9 +108,10 @@
             (fetch-presto-results! details results nextUri))))))
 
 (defn- execute-presto-query! [details query]
+  {:pre [(map? details)]}
   (ssh/with-ssh-tunnel [details-with-tunnel details]
-    (let [{{:keys [columns data nextUri error]} :body :as foo} (http/post (details->uri details-with-tunnel "/v1/statement")
-                                                                          (assoc (details->request details-with-tunnel) :body query, :as :json))]
+    (let [{{:keys [columns data nextUri error id]} :body :as foo} (http/post (details->uri details-with-tunnel "/v1/statement")
+                                                                             (assoc (details->request details-with-tunnel) :body query, :as :json))]
 
       (when error
         (throw (ex-info (or (:message error) "Error preparing query.") error)))
@@ -112,7 +120,25 @@
                      :rows    rows}]
         (if (nil? nextUri)
           results
-          (fetch-presto-results! details-with-tunnel results nextUri))))))
+          ;; When executing the query, it doesn't return the results, but is geared toward async queries. After
+          ;; issuing the query, the below will ask for the results. Asking in a future so that this thread can be
+          ;; interrupted if the client disconnects
+          (let [results-future (future (fetch-presto-results! details-with-tunnel results nextUri))]
+            (try
+              @results-future
+              (catch InterruptedException e
+                (if id
+                  ;; If we have a query id, we can cancel the query
+                  (try
+                    (http/delete (details->uri details-with-tunnel (str "/v1/query/" id))
+                                 (details->request details-with-tunnel))
+                    ;; If we fail to cancel the query, log it but propogate the interrupted exception, instead of
+                    ;; covering it up with a failed cancel
+                    (catch Exception e
+                      (log/error e (str "Error cancelling query with id " id))))
+                  (log/warn "Client connection closed, no query-id found, can't cancel query"))
+                ;; Propogate the error so that any finalizers can still run
+                (throw e)))))))))
 
 
 ;;; Generic helpers
@@ -196,7 +222,11 @@
 
 (defmethod sqlqp/->honeysql [PrestoDriver Date]
   [_ date]
-  (hsql/call :from_iso8601_timestamp (hx/literal (u/date->iso-8601 date))))
+  (hsql/call :from_iso8601_timestamp (hx/literal (du/date->iso-8601 date))))
+
+(defmethod sqlqp/->honeysql [PrestoDriver :stddev]
+  [driver [_ field]]
+  (hsql/call :stddev_samp (sqlqp/->honeysql driver field)))
 
 (def ^:private time-format (tformat/formatter "HH:mm:SS.SSS"))
 
@@ -207,24 +237,21 @@
    (let [tz (time/time-zone-for-id tz-id)]
      (tformat/unparse (tformat/with-zone time-format tz) (tcoerce/to-date-time t)))))
 
-(defmethod sqlqp/->honeysql [PrestoDriver TimeValue]
-  [_ {:keys [value timezone-id]}]
-  (hx/cast :time (time->str value timezone-id)))
+(defmethod sqlqp/->honeysql [PrestoDriver :time]
+  [_ [_ value]]
+  (hx/cast :time (time->str value (driver/report-timezone))))
 
-(defmethod sqlqp/->honeysql [PrestoDriver Time]
-  [_ {:keys [value]}]
-  (hx/->time (time->str value)))
-
-(defn- execute-query [{:keys [database settings], {sql :query, params :params} :native, :as outer-query}]
+(defn- execute-query [{database-id :database, :keys [settings], {sql :query, params :params} :native, :as outer-query}]
   (let [sql                    (str "-- "
                                     (qputil/query->remark outer-query) "\n"
                                     (unprepare/unprepare (cons sql params) :quote-escape "'", :iso-8601-fn :from_iso8601_timestamp))
-        details                (merge (:details database) settings)
+        details                (merge (db/select-one-field :details Database :id (u/get-id database-id))
+                                      settings)
         {:keys [columns rows]} (execute-presto-query! details sql)
         columns                (for [[col name] (map vector columns (rename-duplicates (map :name columns)))]
                                  {:name name, :base_type (presto-type->base-type (:type col))})]
     {:cols    columns
-     :columns (map (comp keyword :name) columns)
+     :columns (map (comp u/keyword->qualified-name :name) columns)
      :rows    rows}))
 
 
@@ -305,29 +332,14 @@
           :describe-table                    (u/drop-first-arg describe-table)
           :describe-table-fks                (constantly nil) ; no FKs in Presto
           :details-fields                    (constantly (ssh/with-tunnel-config
-                                                           [{:name         "host"
-                                                             :display-name "Host"
-                                                             :default      "localhost"}
-                                                            {:name         "port"
-                                                             :display-name "Port"
-                                                             :type         :integer
-                                                             :default      8080}
-                                                            {:name         "catalog"
-                                                             :display-name "Database name"
-                                                             :placeholder  "hive"
-                                                             :required     true}
-                                                            {:name         "user"
-                                                             :display-name "Database username"
-                                                             :placeholder  "What username do you use to login to the database"
-                                                             :default      "metabase"}
-                                                            {:name         "password"
-                                                             :display-name "Database password"
-                                                             :type         :password
-                                                             :placeholder  "*******"}
-                                                            {:name         "ssl"
-                                                             :display-name "Use a secure connection (SSL)?"
-                                                             :type         :boolean
-                                                             :default      false}]))
+                                                           [driver/default-host-details
+                                                            (assoc driver/default-port-details :default 8080)
+                                                            (assoc driver/default-dbname-details
+                                                              :name         "catalog"
+                                                              :placeholder  (tru "hive"))
+                                                            driver/default-user-details
+                                                            driver/default-password-details
+                                                            driver/default-ssl-details]))
           :execute-query                     (u/drop-first-arg execute-query)
           :features                          (constantly (set/union #{:set-timezone
                                                                       :basic-aggregations
@@ -335,7 +347,8 @@
                                                                       :expressions
                                                                       :native-parameters
                                                                       :expression-aggregations
-                                                                      :binning}
+                                                                      :binning
+                                                                      :native-query-params}
                                                                     (when-not config/is-test?
                                                                       ;; during unit tests don't treat presto as having FK support
                                                                       #{:foreign-keys})))
@@ -351,7 +364,6 @@
           :date                      (u/drop-first-arg date)
           :excluded-schemas          (constantly #{"information_schema"})
           :quote-style               (constantly :ansi)
-          :stddev-fn                 (constantly :stddev_samp)
           :string-length-fn          (u/drop-first-arg string-length-fn)
           :unix-timestamp->timestamp (u/drop-first-arg unix-timestamp->timestamp)}))
 

@@ -1,6 +1,6 @@
 import React from "react";
 
-import NumericInput from "./NumericInput";
+import NumericInput from "metabase/components/NumericInput.jsx";
 import Icon from "metabase/components/Icon";
 
 import cx from "classnames";
@@ -52,7 +52,7 @@ const HoursMinutesInput = ({
     </div>
     {onClear && (
       <Icon
-        className="text-grey-2 cursor-pointer text-grey-4-hover ml-auto"
+        className="text-light cursor-pointer text-medium-hover ml-auto"
         name="close"
         onClick={onClear}
       />

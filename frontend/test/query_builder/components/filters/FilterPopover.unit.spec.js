@@ -1,11 +1,13 @@
 import "__support__/mocks";
 import React from "react";
+
 import { shallow, mount } from "enzyme";
 
 import Question from "metabase-lib/lib/Question";
 
 import FilterPopover from "metabase/query_builder/components/filters/FilterPopover";
 import DatePicker from "metabase/query_builder/components/filters/pickers/DatePicker";
+import OperatorSelector from "metabase/query_builder/components/filters/OperatorSelector";
 import CheckBox from "metabase/components/CheckBox";
 
 import {
@@ -16,6 +18,7 @@ import {
   ORDERS_PRODUCT_FK_FIELD_ID,
   PRODUCT_TILE_FIELD_ID,
   metadata,
+  StaticEntitiesProvider,
 } from "__support__/sample_dataset_fixture";
 
 const RELATIVE_DAY_FILTER = [
@@ -31,7 +34,7 @@ const RELATIVE_DAY_FILTER_WITH_CURRENT_PERIOD = RELATIVE_DAY_FILTER.concat([
 const NUMERIC_FILTER = ["=", ["field-id", ORDERS_TOTAL_FIELD_ID], 1234];
 
 const STRING_CONTAINS_FILTER = [
-  "CONTAINS",
+  "contains",
   ["fk->", ORDERS_PRODUCT_FK_FIELD_ID, PRODUCT_TILE_FIELD_ID],
   "asdf",
 ];
@@ -57,10 +60,22 @@ describe("FilterPopover", () => {
         expect(wrapper.find(DatePicker).length).toBe(1);
       });
     });
+    describe("filter operator selection", () => {
+      it("should have an operator selector", () => {
+        const wrapper = mount(
+          <StaticEntitiesProvider>
+            <FilterPopover query={QUERY} filter={NUMERIC_FILTER} />
+          </StaticEntitiesProvider>,
+        );
+        expect(wrapper.find(OperatorSelector).length).toEqual(1);
+      });
+    });
     describe("filter options", () => {
       it("should not show a control to the user if the filter has no options", () => {
         const wrapper = mount(
-          <FilterPopover query={QUERY} filter={QUERY.filters()[1]} />,
+          <StaticEntitiesProvider>
+            <FilterPopover query={QUERY} filter={QUERY.filters()[1]} />
+          </StaticEntitiesProvider>,
         );
         expect(wrapper.find(CheckBox).length).toBe(0);
       });
@@ -72,7 +87,9 @@ describe("FilterPopover", () => {
       });
       it('should show "case-sensitive" option to the user for "contains" filters', () => {
         const wrapper = mount(
-          <FilterPopover query={QUERY} filter={STRING_CONTAINS_FILTER} />,
+          <StaticEntitiesProvider>
+            <FilterPopover query={QUERY} filter={STRING_CONTAINS_FILTER} />
+          </StaticEntitiesProvider>,
         );
         expect(wrapper.find(CheckBox).length).toBe(1);
       });

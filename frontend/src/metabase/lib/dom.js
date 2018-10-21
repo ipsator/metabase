@@ -27,6 +27,9 @@ export const IFRAMED_IN_SELF = (function() {
 })();
 
 export function isObscured(element, offset) {
+  if (!document.elementFromPoint) {
+    return false;
+  }
   // default to the center of the element
   offset = offset || {
     top: Math.round(element.offsetHeight / 2),
@@ -42,8 +45,8 @@ export function isObscured(element, offset) {
 
 // get the position of an element on the page
 export function findPosition(element, excludeScroll = false) {
-  var offset = { top: 0, left: 0 };
-  var scroll = { top: 0, left: 0 };
+  let offset = { top: 0, left: 0 };
+  let scroll = { top: 0, left: 0 };
   let offsetParent = element;
   while (offsetParent) {
     // we need to check every element for scrollTop/scrollLeft
@@ -170,7 +173,7 @@ function getTextNodeAtPosition(root, index) {
       return NodeFilter.FILTER_ACCEPT;
     },
   );
-  var c = treeWalker.nextNode();
+  let c = treeWalker.nextNode();
   return {
     node: c ? c : root,
     position: c ? index : 0,
@@ -178,9 +181,9 @@ function getTextNodeAtPosition(root, index) {
 }
 
 // https://davidwalsh.name/add-rules-stylesheets
-var STYLE_SHEET = (function() {
+let STYLE_SHEET = (function() {
   // Create the <style> tag
-  var style = document.createElement("style");
+  let style = document.createElement("style");
 
   // WebKit hack :(
   style.appendChild(document.createTextNode("/* dynamic stylesheet */"));
@@ -200,6 +203,9 @@ export function addCSSRule(selector, rules, index = 0) {
 }
 
 export function constrainToScreen(element, direction, padding) {
+  if (!element) {
+    return false;
+  }
   if (direction === "bottom") {
     let screenBottom = window.innerHeight + getScrollY();
     let overflowY = element.getBoundingClientRect().bottom - screenBottom;

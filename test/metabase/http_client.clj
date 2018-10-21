@@ -6,7 +6,8 @@
             [clojure.tools.logging :as log]
             [metabase
              [config :as config]
-             [util :as u]]))
+             [util :as u]]
+            [metabase.util.date :as du]))
 
 ;;; build-url
 
@@ -40,7 +41,8 @@
         (map? response) (->> response
                              (map (fn [[k v]]
                                     {k (cond
-                                         (contains? auto-deserialize-dates-keys k) (u/->Timestamp v)
+                                         ;; Our tests only run in UTC, parsing timestamp strings as UTC
+                                         (contains? auto-deserialize-dates-keys k) (du/->Timestamp v du/utc)
                                          (coll? v) (auto-deserialize-dates v)
                                          :else v)}))
                              (into {}))
@@ -150,6 +152,6 @@
   [& args]
   (let [[credentials [method & args]]     (u/optional #(or (map? %) (string? %)) args)
         [expected-status [url & args]]    (u/optional integer? args)
-        [{:keys [request-options]} args]  (u/optional #(and (map? %) (:request-options %)) args {:request-options {}})
+        [{:keys [request-options]} args]  (u/optional (every-pred map? :request-options) args {:request-options {}})
         [body [& {:as url-param-kwargs}]] (u/optional map? args)]
     (-client credentials method expected-status url body url-param-kwargs request-options)))

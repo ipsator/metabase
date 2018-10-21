@@ -3,10 +3,10 @@
 import React, { Component } from "react";
 import PropTypes from "prop-types";
 import { connect } from "react-redux";
+import { t } from "c-3po";
 
 import PopoverWithTrigger from "metabase/components/PopoverWithTrigger.jsx";
 import Icon from "metabase/components/Icon.jsx";
-import { t } from "c-3po";
 import DateSingleWidget from "./widgets/DateSingleWidget.jsx";
 import DateRangeWidget from "./widgets/DateRangeWidget.jsx";
 import DateRelativeWidget from "./widgets/DateRelativeWidget.jsx";
@@ -15,6 +15,15 @@ import DateQuarterYearWidget from "./widgets/DateQuarterYearWidget.jsx";
 import DateAllOptionsWidget from "./widgets/DateAllOptionsWidget.jsx";
 import CategoryWidget from "./widgets/CategoryWidget.jsx";
 import TextWidget from "./widgets/TextWidget.jsx";
+import ParameterFieldWidget from "./widgets/ParameterFieldWidget";
+
+import { fetchField, fetchFieldValues } from "metabase/redux/metadata";
+import {
+  getMetadata,
+  makeGetMergedParameterFieldValues,
+} from "metabase/selectors/metadata";
+
+import { getParameterIconName } from "metabase/meta/Parameter";
 
 import S from "./ParameterWidget.css";
 
@@ -30,12 +39,10 @@ const DATE_WIDGETS = {
   "date/all-options": DateAllOptionsWidget,
 };
 
-import { fetchFieldValues } from "metabase/redux/metadata";
-import { makeGetMergedParameterFieldValues } from "metabase/selectors/metadata";
-
 const makeMapStateToProps = () => {
   const getMergedParameterFieldValues = makeGetMergedParameterFieldValues();
   const mapStateToProps = (state, props) => ({
+    metadata: getMetadata(state),
     values: getMergedParameterFieldValues(state, props),
   });
   return mapStateToProps;
@@ -43,6 +50,7 @@ const makeMapStateToProps = () => {
 
 const mapDispatchToProps = {
   fetchFieldValues,
+  fetchField,
 };
 
 @connect(makeMapStateToProps, mapDispatchToProps)
@@ -53,13 +61,16 @@ export default class ParameterValueWidget extends Component {
     value: PropTypes.any,
     setValue: PropTypes.func.isRequired,
     placeholder: PropTypes.string,
-    values: PropTypes.array,
     isEditing: PropTypes.bool,
     noReset: PropTypes.bool,
     commitImmediately: PropTypes.bool,
     focusChanged: PropTypes.func,
     isFullscreen: PropTypes.bool,
     className: PropTypes.string,
+
+    // provided by @connect
+    values: PropTypes.array,
+    metadata: PropTypes.object.isRequired,
   };
 
   static defaultProps = {
@@ -70,21 +81,24 @@ export default class ParameterValueWidget extends Component {
     className: "",
   };
 
-  static getWidget(parameter, values) {
+  getField() {
+    const { parameter, metadata } = this.props;
+    return parameter.field_id != null
+      ? metadata.fields[parameter.field_id]
+      : null;
+  }
+
+  getWidget() {
+    const { parameter, values } = this.props;
     if (DATE_WIDGETS[parameter.type]) {
       return DATE_WIDGETS[parameter.type];
+    } else if (this.getField()) {
+      return ParameterFieldWidget;
     } else if (values && values.length > 0) {
       return CategoryWidget;
     } else {
       return TextWidget;
     }
-  }
-
-  static getParameterIconName(parameterType) {
-    if (parameterType.search(/date/) !== -1) return "calendar";
-    if (parameterType.search(/location/) !== -1) return "location";
-    if (parameterType.search(/id/) !== -1) return "label";
-    return "clipboard";
   }
 
   state = { isFocused: false };
@@ -108,6 +122,7 @@ export default class ParameterValueWidget extends Component {
 
   updateFieldValues(props) {
     if (props.parameter.field_id != null) {
+      props.fetchField(props.parameter.field_id);
       props.fetchFieldValues(props.parameter.field_id);
     }
   }
@@ -129,7 +144,7 @@ export default class ParameterValueWidget extends Component {
 
     let hasValue = value != null;
 
-    let Widget = ParameterValueWidget.getWidget(parameter, values);
+    let Widget = this.getWidget();
 
     const focusChanged = isFocused => {
       if (parentFocusChanged) {
@@ -142,7 +157,7 @@ export default class ParameterValueWidget extends Component {
       if (!isEditing && !hasValue && !this.state.isFocused) {
         return (
           <Icon
-            name={ParameterValueWidget.getParameterIconName(parameter.type)}
+            name={getParameterIconName(parameter.type)}
             className="flex-align-left mr1 flex-no-shrink"
             size={14}
           />
@@ -153,7 +168,9 @@ export default class ParameterValueWidget extends Component {
     };
 
     const getWidgetStatusIcon = () => {
-      if (isFullscreen) return null;
+      if (isFullscreen) {
+        return null;
+      }
 
       if (hasValue && !noReset) {
         return (
@@ -209,6 +226,7 @@ export default class ParameterValueWidget extends Component {
             placeholder={placeholder}
             value={value}
             values={values}
+            field={this.getField()}
             setValue={setValue}
             isEditing={isEditing}
             commitImmediately={commitImmediately}

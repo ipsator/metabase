@@ -11,11 +11,16 @@ import TimePicker from "./pickers/TimePicker.jsx";
 import NumberPicker from "./pickers/NumberPicker.jsx";
 import SelectPicker from "./pickers/SelectPicker.jsx";
 import TextPicker from "./pickers/TextPicker.jsx";
+import FieldValuesWidget from "metabase/components/FieldValuesWidget.jsx";
 
 import Icon from "metabase/components/Icon.jsx";
 
 import Query from "metabase/lib/query";
-import { isDate, isTime } from "metabase/lib/schema_metadata";
+import {
+  isDate,
+  isTime,
+  getFilterArgumentFormatOptions,
+} from "metabase/lib/schema_metadata";
 import { formatField, singularize } from "metabase/lib/formatting";
 
 import cx from "classnames";
@@ -26,7 +31,9 @@ import type {
   FieldFilter,
   ConcreteField,
 } from "metabase/meta/types/Query";
-import type { FieldMetadata, Operator } from "metabase/meta/types/Metadata";
+import type { Operator } from "metabase/meta/types/Metadata";
+
+import Field from "metabase-lib/lib/metadata/Field";
 
 type Props = {
   maxHeight?: number,
@@ -47,9 +54,10 @@ export default class FilterPopover extends Component {
   constructor(props: Props) {
     super(props);
 
+    const filter = props.filter || [];
     this.state = {
       // $FlowFixMe
-      filter: props.filter || [],
+      filter: filter,
     };
   }
 
@@ -83,7 +91,7 @@ export default class FilterPopover extends Component {
       filter[1] = fieldId;
 
       // default to the first operator
-      let { field } = Query.getFieldTarget(filter[1], query.table());
+      let { field } = query.table().fieldTarget(filter[1]);
 
       // let the DatePicker choose the default operator, otherwise use the first one
       let operator = isDate(field) ? null : field.operators[0].name;
@@ -102,8 +110,8 @@ export default class FilterPopover extends Component {
     let { filter } = this.state;
     if (filter[0] !== operator) {
       filter = this._updateOperator(filter, operator);
-      this.setState({ filter });
     }
+    this.setState({ filter });
   };
 
   setValue(index: number, value: any) {
@@ -122,7 +130,7 @@ export default class FilterPopover extends Component {
 
   _updateOperator(oldFilter: FieldFilter, operatorName: ?string): FieldFilter {
     const { query } = this.props;
-    let { field } = Query.getFieldTarget(oldFilter[1], query.table());
+    let { field } = query.table().fieldTarget(oldFilter[1]);
     let operator = field.operator(operatorName);
     let oldOperator = field.operator(oldFilter[0]);
 
@@ -132,8 +140,8 @@ export default class FilterPopover extends Component {
 
     if (operator) {
       for (let i = 0; i < operator.fields.length; i++) {
-        if (operator.defaults && operator.defaults[i] !== undefined) {
-          filter.push(operator.defaults[i]);
+        if (operator.fields[i].default !== undefined) {
+          filter.push(operator.fields[i].default);
         } else {
           filter.push(undefined);
         }
@@ -170,7 +178,7 @@ export default class FilterPopover extends Component {
       return false;
     }
     // field/operator combo is valid
-    let { field } = Query.getFieldTarget(filter[1], query.table());
+    let { field } = query.table().fieldTarget(filter[1]);
     let operator = field.operators_lookup[filter[0]];
     if (operator) {
       // has the mininum number of arguments
@@ -179,7 +187,7 @@ export default class FilterPopover extends Component {
       }
     }
     // arguments are non-null/undefined
-    for (var i = 2; i < filter.length; i++) {
+    for (let i = 2; i < filter.length; i++) {
       if (filter[i] == null) {
         return false;
       }
@@ -196,9 +204,9 @@ export default class FilterPopover extends Component {
     });
   };
 
-  renderPicker(filter: FieldFilter, field: FieldMetadata) {
+  renderPicker(filter: FieldFilter, field: Field) {
     let operator: ?Operator = field.operators_lookup[filter[0]];
-    return (
+    let fieldWidgets =
       operator &&
       operator.fields.map((operatorField, index) => {
         if (!operator) {
@@ -212,10 +220,13 @@ export default class FilterPopover extends Component {
           values = this.state.filter.slice(2);
           onValuesChange = values => this.setValues(values);
         } else {
+          // $FlowFixMe
           values = [this.state.filter[2 + index]];
           onValuesChange = values => this.setValue(index, values[0]);
         }
-        if (operatorField.type === "select") {
+        if (operatorField.type === "hidden") {
+          return null;
+        } else if (operatorField.type === "select") {
           return (
             <SelectPicker
               key={index}
@@ -226,6 +237,22 @@ export default class FilterPopover extends Component {
               placeholder={placeholder}
               multi={operator.multi}
               onCommit={this.onCommit}
+            />
+          );
+        } else if (field) {
+          return (
+            <FieldValuesWidget
+              value={(values: Array<string>)}
+              onChange={onValuesChange}
+              multi={operator.multi}
+              placeholder={placeholder}
+              field={field}
+              searchField={field.filterSearchField()}
+              autoFocus={index === 0}
+              alwaysShowOptions={operator.fields.length === 1}
+              formatOptions={getFilterArgumentFormatOptions(operator, index)}
+              minWidth={440}
+              maxWidth={440}
             />
           );
         } else if (operatorField.type === "text") {
@@ -259,8 +286,12 @@ export default class FilterPopover extends Component {
             {operator.multi ? t`true` : t`false`}
           </span>
         );
-      })
-    );
+      });
+    if (fieldWidgets && fieldWidgets.filter(f => f).length > 0) {
+      return fieldWidgets;
+    } else {
+      return <div className="mb1" />;
+    }
   }
 
   onCommit = () => {
@@ -272,9 +303,9 @@ export default class FilterPopover extends Component {
   render() {
     const { query } = this.props;
     const { filter } = this.state;
-    const [operator, fieldRef] = filter;
+    const [operatorName, fieldRef] = filter;
 
-    if (operator === "SEGMENT" || fieldRef == undefined) {
+    if (operatorName === "segment" || fieldRef == undefined) {
       return (
         <div className="FilterPopover">
           <FieldList
@@ -290,7 +321,7 @@ export default class FilterPopover extends Component {
         </div>
       );
     } else {
-      let { table, field } = Query.getFieldTarget(fieldRef, query.table());
+      let { table, field } = query.table().fieldTarget(fieldRef);
       const dimension = query.parseFieldReference(fieldRef);
       return (
         <div
@@ -300,18 +331,27 @@ export default class FilterPopover extends Component {
             maxWidth: dimension.field().isDate() ? null : 500,
           }}
         >
-          <div className="FilterPopover-header text-grey-3 p1 mt1 flex align-center">
-            <a
-              className="cursor-pointer text-purple-hover transition-color flex align-center"
-              onClick={this.clearField}
-            >
-              <Icon name="chevronleft" size={18} />
-              <h3 className="inline-block">
-                {singularize(table.display_name)}
-              </h3>
-            </a>
-            <h3 className="mx1">-</h3>
-            <h3 className="text-default">{formatField(field)}</h3>
+          <div className="FilterPopover-header border-bottom text-medium p1 flex align-center">
+            <div className="flex py1">
+              <a
+                className="cursor-pointer text-purple-hover transition-color flex align-center"
+                onClick={this.clearField}
+              >
+                <Icon name="chevronleft" size={16} />
+                <h3 className="ml1">{singularize(table.display_name)}</h3>
+              </a>
+              <h3 className="mx1">-</h3>
+              <h3 className="text-default">{formatField(field)}</h3>
+            </div>
+            {isTime(field) || isDate(field) ? null : (
+              <div className="flex flex-align-right pl3">
+                <OperatorSelector
+                  operator={operatorName}
+                  operators={field.operators}
+                  onOperatorChange={this.setOperator}
+                />
+              </div>
+            )}
           </div>
           {isTime(field) ? (
             <TimePicker
@@ -326,16 +366,9 @@ export default class FilterPopover extends Component {
               onFilterChange={this.setFilter}
             />
           ) : (
-            <div>
-              <OperatorSelector
-                operator={filter[0]}
-                operators={field.operators}
-                onOperatorChange={this.setOperator}
-              />
-              {this.renderPicker(filter, field)}
-            </div>
+            <div>{this.renderPicker(filter, field)}</div>
           )}
-          <div className="FilterPopover-footer border-top flex align-center p2">
+          <div className="FilterPopover-footer flex align-center p1 pl2">
             <FilterOptions
               filter={filter}
               onFilterChange={this.setFilter}
@@ -344,7 +377,7 @@ export default class FilterPopover extends Component {
                   ? // DatePicker uses a different set of operator objects
                     getOperator(filter)
                   : // Normal operators defined in schema_metadata
-                    field.operator(operator)
+                    field.operator && field.operator(operatorName)
               }
             />
             <button

@@ -3,6 +3,7 @@ import {
   createTestStore,
 } from "__support__/integrated_tests";
 import { click, clickButton, setInputValue } from "__support__/enzyme_utils";
+import { delay } from "metabase/lib/promise";
 
 import React from "react";
 import QueryBuilder from "metabase/query_builder/containers/QueryBuilder";
@@ -15,17 +16,20 @@ import {
   setQuerySourceTable,
 } from "metabase/query_builder/actions";
 
-import { FETCH_TABLE_METADATA } from "metabase/redux/metadata";
+import {
+  FETCH_TABLE_METADATA,
+  FETCH_FIELD_VALUES,
+} from "metabase/redux/metadata";
 
 import FieldList, {
   DimensionPicker,
 } from "metabase/query_builder/components/FieldList";
 import FilterPopover from "metabase/query_builder/components/filters/FilterPopover";
 
-import CheckBox from "metabase/components/CheckBox";
 import FilterWidget from "metabase/query_builder/components/filters/FilterWidget";
 import FieldName from "metabase/query_builder/components/FieldName";
 import RunButton from "metabase/query_builder/components/RunButton";
+import { Option } from "metabase/components/Select";
 
 import OperatorSelector from "metabase/query_builder/components/filters/OperatorSelector";
 import BreakoutWidget from "metabase/query_builder/components/BreakoutWidget";
@@ -82,26 +86,26 @@ describe("QueryBuilder editor bar", () => {
       click(ratingFieldButton);
     });
 
-    it("lets you see its field values in filter popover", () => {
+    it("lets you see its field values in filter popover", async () => {
+      await store.waitForActions([FETCH_FIELD_VALUES]);
+
+      // FIXME: TokenField asynchronously updates displayed options :(
+      await delay(10);
+
       // Same as before applies to FilterPopover too: individual list items could be in their own components
       const filterPopover = qb.find(FilterPopover);
       const fieldItems = filterPopover.find("li");
-      expect(fieldItems.length).toBe(5);
+      expect(fieldItems.length).toBe(5 + 1); // NOTE: bleh, one for the input
 
       // should be in alphabetical order
-      expect(fieldItems.first().text()).toBe("1");
+      expect(fieldItems.at(1).text()).toBe("1");
       expect(fieldItems.last().text()).toBe("5");
     });
 
     it("lets you set 'Rating is 5' filter", async () => {
       const filterPopover = qb.find(FilterPopover);
-      const fieldItems = filterPopover.find("li");
-      const widgetFieldItem = fieldItems.last();
-      const widgetCheckbox = widgetFieldItem.find(CheckBox);
 
-      expect(widgetCheckbox.props().checked).toBe(false);
-      click(widgetFieldItem.children().first());
-      expect(widgetCheckbox.props().checked).toBe(true);
+      setInputValue(filterPopover.find("input"), "5");
 
       const addFilterButton = filterPopover.find(
         'button[children="Add filter"]',
@@ -114,31 +118,6 @@ describe("QueryBuilder editor bar", () => {
       const filterWidget = qb.find(FilterWidget);
       expect(filterWidget.length).toBe(1);
       expect(filterWidget.text()).toBe("Rating is equal to5");
-    });
-
-    it("lets you set 'Rating is 5 or 4' filter", async () => {
-      // reopen the filter popover by clicking filter widget
-      const filterWidget = qb.find(FilterWidget);
-      click(filterWidget.find(FieldName));
-
-      const filterPopover = qb.find(FilterPopover);
-      const fieldItems = filterPopover.find("li");
-      const widgetFieldItem = fieldItems.at(3);
-      const gadgetCheckbox = widgetFieldItem.find(CheckBox);
-
-      expect(gadgetCheckbox.props().checked).toBe(false);
-      click(widgetFieldItem.children().first());
-      expect(gadgetCheckbox.props().checked).toBe(true);
-
-      const addFilterButton = filterPopover.find(
-        'button[children="Update filter"]',
-      );
-      clickButton(addFilterButton);
-
-      await store.waitForActions([SET_DATASET_QUERY]);
-
-      expect(qb.find(FilterPopover).length).toBe(0);
-      expect(filterWidget.text()).toBe("Rating is equal to2 selections");
     });
 
     it("lets you remove the added filter", async () => {
@@ -174,16 +153,17 @@ describe("QueryBuilder editor bar", () => {
     it("lets you see a correct number of operators in filter popover", () => {
       const filterPopover = qb.find(FilterPopover);
 
+      // const optionsIcon = filterPopover.find(`a[children="Options"]`);
       const operatorSelector = filterPopover.find(OperatorSelector);
-      const moreOptionsIcon = operatorSelector.find(".Icon-chevrondown");
-      click(moreOptionsIcon);
 
-      expect(operatorSelector.find("button").length).toBe(9);
+      click(operatorSelector);
+
+      expect(operatorSelector.find(Option).length).toBe(9);
     });
 
     it("lets you set 'ID is 10' filter", async () => {
       const filterPopover = qb.find(FilterPopover);
-      const filterInput = filterPopover.find("textarea");
+      const filterInput = filterPopover.find("input");
       setInputValue(filterInput, "10");
 
       const addFilterButton = filterPopover.find(
@@ -199,39 +179,17 @@ describe("QueryBuilder editor bar", () => {
       expect(filterWidget.text()).toBe("ID is equal to10");
     });
 
-    it("lets you update the filter to 'ID is 10 or 11'", async () => {
-      const filterWidget = qb.find(FilterWidget);
-      click(filterWidget.find(FieldName));
-
-      const filterPopover = qb.find(FilterPopover);
-      const filterInput = filterPopover.find("textarea");
-
-      // Intentionally use a value with lots of extra spaces
-      setInputValue(filterInput, "  10,      11");
-
-      const addFilterButton = filterPopover.find(
-        'button[children="Update filter"]',
-      );
-      clickButton(addFilterButton);
-
-      await store.waitForActions([SET_DATASET_QUERY]);
-
-      expect(qb.find(FilterPopover).length).toBe(0);
-      expect(filterWidget.text()).toBe("ID is equal to2 selections");
-    });
-
     it("lets you update the filter to 'ID is between 1 or 100'", async () => {
       const filterWidget = qb.find(FilterWidget);
       click(filterWidget.find(FieldName));
 
       const filterPopover = qb.find(FilterPopover);
       const operatorSelector = filterPopover.find(OperatorSelector);
-      clickButton(operatorSelector.find('button[children="Between"]'));
+      click(operatorSelector);
+      clickButton(operatorSelector.find('[children="Between"]'));
 
-      const betweenInputs = filterPopover.find("textarea");
+      const betweenInputs = filterPopover.find("input");
       expect(betweenInputs.length).toBe(2);
-
-      expect(betweenInputs.at(0).props().value).toBe("10, 11");
 
       setInputValue(betweenInputs.at(1), "asdasd");
       const updateFilterButton = filterPopover.find(
@@ -280,13 +238,13 @@ describe("QueryBuilder editor bar", () => {
       await store.waitForActions([QUERY_COMPLETED]);
 
       // We can use the visible row count as we have a low number of result rows
-      expect(qb.find(".ShownRowCount").text()).toBe("Showing 14 rows");
+      expect(qb.find(".ShownRowCount").text()).toBe("Showing 11 rows");
 
       // Get the binning
       const results = getQueryResults(store.getState())[0];
       const breakoutBinningInfo = results.data.cols[0].binning_info;
       expect(breakoutBinningInfo.binning_strategy).toBe("num-bins");
-      expect(breakoutBinningInfo.bin_width).toBe(20);
+      expect(breakoutBinningInfo.bin_width).toBe(30);
       expect(breakoutBinningInfo.num_bins).toBe(8);
     });
     it("lets you change the binning strategy to 100 bins", async () => {
@@ -314,11 +272,11 @@ describe("QueryBuilder editor bar", () => {
       click(qb.find(RunButton));
       await store.waitForActions([QUERY_COMPLETED]);
 
-      expect(qb.find(".ShownRowCount").text()).toBe("Showing 253 rows");
+      expect(qb.find(".ShownRowCount").text()).toBe("Showing 116 rows");
       const results = getQueryResults(store.getState())[0];
       const breakoutBinningInfo = results.data.cols[0].binning_info;
       expect(breakoutBinningInfo.binning_strategy).toBe("num-bins");
-      expect(breakoutBinningInfo.bin_width).toBe(1);
+      expect(breakoutBinningInfo.bin_width).toBe(2.5);
       expect(breakoutBinningInfo.num_bins).toBe(100);
     });
     it("lets you disable the binning", async () => {
@@ -380,7 +338,7 @@ describe("QueryBuilder editor bar", () => {
       await store.waitForActions([SET_DATASET_QUERY]);
 
       const breakoutWidget = qb.find(BreakoutWidget).first();
-      expect(breakoutWidget.text()).toBe("Latitude: Auto binned");
+      expect(breakoutWidget.text()).toBe("UserLatitude: Auto binned");
     });
 
     it("produces correct results for default binning option", async () => {
@@ -388,13 +346,13 @@ describe("QueryBuilder editor bar", () => {
       click(qb.find(RunButton));
       await store.waitForActions([QUERY_COMPLETED]);
 
-      expect(qb.find(".ShownRowCount").text()).toBe("Showing 18 rows");
+      expect(qb.find(".ShownRowCount").text()).toBe("Showing 6 rows");
 
       const results = getQueryResults(store.getState())[0];
       const breakoutBinningInfo = results.data.cols[0].binning_info;
       expect(breakoutBinningInfo.binning_strategy).toBe("bin-width");
       expect(breakoutBinningInfo.bin_width).toBe(10);
-      expect(breakoutBinningInfo.num_bins).toBe(18);
+      expect(breakoutBinningInfo.num_bins).toBe(6);
     });
 
     it("lets you group by Latitude with the 'Bin every 1 degree'", async () => {
@@ -416,20 +374,20 @@ describe("QueryBuilder editor bar", () => {
       click(qb.find(DimensionPicker).find('a[children="Bin every 1 degree"]'));
 
       await store.waitForActions([SET_DATASET_QUERY]);
-      expect(breakoutWidget.text()).toBe("Latitude: 1°");
+      expect(breakoutWidget.text()).toBe("UserLatitude: 1°");
     });
     it("produces correct results for 'Bin every 1 degree'", async () => {
       // Run the raw data query
       click(qb.find(RunButton));
       await store.waitForActions([QUERY_COMPLETED]);
 
-      expect(qb.find(".ShownRowCount").text()).toBe("Showing 180 rows");
+      expect(qb.find(".ShownRowCount").text()).toBe("Showing 40 rows");
 
       const results = getQueryResults(store.getState())[0];
       const breakoutBinningInfo = results.data.cols[0].binning_info;
       expect(breakoutBinningInfo.binning_strategy).toBe("bin-width");
       expect(breakoutBinningInfo.bin_width).toBe(1);
-      expect(breakoutBinningInfo.num_bins).toBe(180);
+      expect(breakoutBinningInfo.num_bins).toBe(46);
     });
   });
 });

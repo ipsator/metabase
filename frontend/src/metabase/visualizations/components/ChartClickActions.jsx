@@ -1,10 +1,12 @@
 /* @flow */
 
 import React, { Component } from "react";
+import { connect } from "react-redux";
 import cx from "classnames";
 
 import Icon from "metabase/components/Icon";
 import Popover from "metabase/components/Popover";
+import { Link } from "react-router";
 
 import MetabaseAnalytics from "metabase/lib/analytics";
 
@@ -17,7 +19,7 @@ import _ from "underscore";
 
 const SECTIONS = {
   zoom: {
-    icon: "zoom",
+    icon: "zoom-in",
   },
   records: {
     icon: "table2",
@@ -46,12 +48,21 @@ const SECTIONS = {
   distribution: {
     icon: "bar",
   },
+  auto: {
+    icon: "bolt",
+  },
+  Formatting: {
+    icon: "pencil",
+  },
 };
 // give them indexes so we can sort the sections by the above ordering (JS objects are ordered)
 Object.values(SECTIONS).map((section, index) => {
   // $FlowFixMe
   section.index = index;
 });
+
+const getGALabelForAction = action =>
+  action ? `${action.section || ""}:${action.name || ""}` : null;
 
 type Props = {
   clicked: ?ClickObject,
@@ -64,6 +75,7 @@ type State = {
   popoverAction: ?ClickAction,
 };
 
+@connect()
 export default class ChartClickActions extends Component {
   props: Props;
   state: State = {
@@ -79,7 +91,19 @@ export default class ChartClickActions extends Component {
 
   handleClickAction = (action: ClickAction) => {
     const { onChangeCardAndRun } = this.props;
-    if (action.popover) {
+    if (action.action) {
+      const reduxAction = action.action();
+      if (reduxAction) {
+        // $FlowFixMe: dispatch provided by @connect
+        this.props.dispatch(reduxAction);
+      }
+      this.props.onClose();
+    } else if (action.popover) {
+      MetabaseAnalytics.trackEvent(
+        "Actions",
+        "Open Click Action Popover",
+        getGALabelForAction(action),
+      );
       this.setState({ popoverAction: action });
     } else if (action.question) {
       const nextQuestion = action.question();
@@ -87,7 +111,7 @@ export default class ChartClickActions extends Component {
         MetabaseAnalytics.trackEvent(
           "Actions",
           "Executed Click Action",
-          `${action.section || ""}:${action.name || ""}`,
+          getGALabelForAction(action),
         );
         onChangeCardAndRun({ nextCard: nextQuestion.card() });
       }
@@ -113,7 +137,7 @@ export default class ChartClickActions extends Component {
               MetabaseAnalytics.trackEvent(
                 "Action",
                 "Executed Click Action",
-                `${popoverAction.section || ""}:${popoverAction.name || ""}`,
+                getGALabelForAction(popoverAction),
               );
             }
             onChangeCardAndRun({ nextCard });
@@ -122,6 +146,7 @@ export default class ChartClickActions extends Component {
             MetabaseAnalytics.trackEvent(
               "Action",
               "Dismissed Click Action Menu",
+              getGALabelForAction(popoverAction),
             );
             this.close();
           }}
@@ -151,7 +176,7 @@ export default class ChartClickActions extends Component {
         {popover ? (
           popover
         ) : (
-          <div className="text-bold text-grey-3">
+          <div className="text-bold text-medium">
             {sections.map(([key, actions]) => (
               <div
                 key={key}
@@ -187,14 +212,43 @@ export const ChartClickAction = ({
   action: any,
   isLastItem: any,
   handleClickAction: any,
-}) => (
-  <div
-    className={cx("text-brand-hover cursor-pointer", {
-      pr2: isLastItem,
-      pr4: !isLastItem,
-    })}
-    onClick={() => handleClickAction(action)}
-  >
-    {action.title}
-  </div>
-);
+}) => {
+  const className = cx(
+    "text-brand-hover cursor-pointer no-decoration",
+    isLastItem ? "pr2" : "pr3",
+  );
+  // NOTE: Tom Robinson 4/16/2018: disabling <Link> for `question` click actions
+  // for now since on dashboards currently they need to go through
+  // navigateToNewCardFromDashboard to merge in parameters.,
+  // Also need to sort out proper logic in QueryBuilder's componentWillReceiveProps
+  // if (action.question) {
+  //   return (
+  //     <Link to={action.question().getUrl()} className={className}>
+  //       {action.title}
+  //     </Link>
+  //   );
+  // } else
+  if (action.url) {
+    return (
+      <Link
+        to={action.url()}
+        className={className}
+        onClick={() =>
+          MetabaseAnalytics.trackEvent(
+            "Actions",
+            "Executed Click Action",
+            getGALabelForAction(action),
+          )
+        }
+      >
+        {action.title}
+      </Link>
+    );
+  } else {
+    return (
+      <div className={className} onClick={() => handleClickAction(action)}>
+        {action.title}
+      </div>
+    );
+  }
+};

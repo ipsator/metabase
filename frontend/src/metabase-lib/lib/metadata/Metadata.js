@@ -43,4 +43,24 @@ export default class Metadata extends Base {
     // $FlowFixMe
     return (Object.values(this.segments): Segment[]);
   }
+
+  segment(segmentId): ?Segment {
+    return (segmentId != null && this.segments[segmentId]) || null;
+  }
+
+  metric(metricId): ?Metric {
+    return (metricId != null && this.metrics[metricId]) || null;
+  }
+
+  database(databaseId): ?Database {
+    return (databaseId != null && this.databases[databaseId]) || null;
+  }
+
+  table(tableId): ?Table {
+    return (tableId != null && this.tables[tableId]) || null;
+  }
+
+  field(fieldId): ?Field {
+    return (fieldId != null && this.fields[fieldId]) || null;
+  }
 }

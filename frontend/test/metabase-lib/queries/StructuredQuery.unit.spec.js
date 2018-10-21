@@ -14,6 +14,7 @@ import {
   PRODUCT_TILE_FIELD_ID,
 } from "__support__/sample_dataset_fixture";
 
+import Segment from "metabase-lib/lib/metadata/Segment";
 import StructuredQuery from "metabase-lib/lib/queries/StructuredQuery";
 
 function makeDatasetQuery(query) {
@@ -21,7 +22,7 @@ function makeDatasetQuery(query) {
     type: "query",
     database: DATABASE_ID,
     query: {
-      source_table: ORDERS_TABLE_ID,
+      "source-table": ORDERS_TABLE_ID,
       ...query,
     },
   };
@@ -102,7 +103,7 @@ describe("StructuredQuery unit tests", () => {
     });
     describe("query", () => {
       it("returns the wrapper for the query dictionary", () => {
-        expect(query.query().source_table).toBe(ORDERS_TABLE_ID);
+        expect(query.query()["source-table"]).toBe(ORDERS_TABLE_ID);
       });
     });
     describe("setDatabase", () => {
@@ -236,7 +237,7 @@ describe("StructuredQuery unit tests", () => {
       it("returns a saved metric's name", () => {
         expect(
           makeQueryWithAggregation([
-            "METRIC",
+            "metric",
             MAIN_METRIC_ID,
           ]).aggregationName(),
         ).toBe("Total Order Value");
@@ -285,7 +286,7 @@ describe("StructuredQuery unit tests", () => {
     describe("addAggregation", () => {
       it("adds an aggregation", () => {
         expect(query.addAggregation(["count"]).query()).toEqual({
-          source_table: ORDERS_TABLE_ID,
+          "source-table": ORDERS_TABLE_ID,
           aggregation: [["count"]],
         });
       });
@@ -323,7 +324,7 @@ describe("StructuredQuery unit tests", () => {
     });
     describe("breakoutOptions", () => {
       it("returns the correct count of dimensions", () => {
-        expect(query.breakoutOptions().dimensions.length).toBe(5);
+        expect(query.breakoutOptions().dimensions.length).toBe(7);
       });
 
       it("excludes the already used breakouts", () => {
@@ -331,16 +332,16 @@ describe("StructuredQuery unit tests", () => {
           "field-id",
           ORDERS_TOTAL_FIELD_ID,
         ]);
-        expect(queryWithBreakout.breakoutOptions().dimensions.length).toBe(4);
+        expect(queryWithBreakout.breakoutOptions().dimensions.length).toBe(6);
       });
 
       it("includes an explicitly provided breakout although it has already been used", () => {
         const breakout = ["field-id", ORDERS_TOTAL_FIELD_ID];
         const queryWithBreakout = query.addBreakout(breakout);
-        expect(queryWithBreakout.breakoutOptions().dimensions.length).toBe(4);
+        expect(queryWithBreakout.breakoutOptions().dimensions.length).toBe(6);
         expect(
           queryWithBreakout.breakoutOptions(breakout).dimensions.length,
-        ).toBe(5);
+        ).toBe(7);
       });
     });
     describe("canAddBreakout", () => {
@@ -380,6 +381,16 @@ describe("StructuredQuery unit tests", () => {
       pending();
     });
 
+    describe("segments", () => {
+      it("should list any applied segments that are currently active filters", () => {
+        const queryWithSegmentFilter = query.addFilter(["segment", 1]);
+        // expect there to be segments
+        expect(queryWithSegmentFilter.segments().length).toBe(1);
+        // and they should actually be segments
+        expect(queryWithSegmentFilter.segments()[0]).toBeInstanceOf(Segment);
+      });
+    });
+
     describe("canAddFilter", () => {
       pending();
     });
@@ -414,30 +425,30 @@ describe("StructuredQuery unit tests", () => {
       it("return an array with the sort clause", () => {
         expect(
           makeQuery({
-            order_by: [["field-id", ORDERS_TOTAL_FIELD_ID], "ascending"],
+            "order-by": ["asc", ["field-id", ORDERS_TOTAL_FIELD_ID]],
           }).sorts(),
-        ).toEqual([["field-id", ORDERS_TOTAL_FIELD_ID], "ascending"]);
+        ).toEqual(["asc", ["field-id", ORDERS_TOTAL_FIELD_ID]]);
       });
     });
 
     describe("sortOptions", () => {
       it("returns the correct count of dimensions", () => {
-        expect(query.sortOptions().dimensions.length).toBe(5);
+        expect(query.sortOptions().dimensions.length).toBe(7);
       });
 
       it("excludes the already used sorts", () => {
         const queryWithBreakout = query.addSort([
+          "asc",
           ["field-id", ORDERS_TOTAL_FIELD_ID],
-          "ascending",
         ]);
-        expect(queryWithBreakout.sortOptions().dimensions.length).toBe(4);
+        expect(queryWithBreakout.sortOptions().dimensions.length).toBe(6);
       });
 
       it("includes an explicitly provided sort although it has already been used", () => {
-        const sort = [["field-id", ORDERS_TOTAL_FIELD_ID], "ascending"];
+        const sort = ["asc", ["field-id", ORDERS_TOTAL_FIELD_ID]];
         const queryWithBreakout = query.addSort(sort);
-        expect(queryWithBreakout.sortOptions().dimensions.length).toBe(4);
-        expect(queryWithBreakout.sortOptions(sort).dimensions.length).toBe(5);
+        expect(queryWithBreakout.sortOptions().dimensions.length).toBe(6);
+        expect(queryWithBreakout.sortOptions(sort).dimensions.length).toBe(7);
       });
     });
 
@@ -520,9 +531,9 @@ describe("StructuredQuery unit tests", () => {
     describe("fieldOptions", () => {
       it("includes the correct number of dimensions", () => {
         // Should just include the non-fk keys from the current table
-        expect(query.fieldOptions().dimensions.length).toBe(5);
+        expect(query.fieldOptions().dimensions.length).toBe(7);
       });
-      it("does not include foreign key fields in the dimensions list", () => {
+      xit("does not include foreign key fields in the dimensions list", () => {
         const dimensions = query.fieldOptions().dimensions;
         const fkDimensions = dimensions.filter(
           dim => dim.field() && dim.field().isFK(),
@@ -534,7 +545,7 @@ describe("StructuredQuery unit tests", () => {
         expect(query.fieldOptions().fks.length).toBe(2);
       });
       it("returns a correct count of fields", () => {
-        expect(query.fieldOptions().count).toBe(26);
+        expect(query.fieldOptions().count).toBe(28);
       });
     });
     describe("dimensions", () => {
@@ -568,7 +579,7 @@ describe("StructuredQuery unit tests", () => {
     describe("setDatasetQuery", () => {
       it("replaces the previous dataset query with the provided one", () => {
         const newDatasetQuery = makeDatasetQuery({
-          source_table: ORDERS_TABLE_ID,
+          "source-table": ORDERS_TABLE_ID,
           aggregation: [["count"]],
         });
 
