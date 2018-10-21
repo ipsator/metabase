@@ -123,7 +123,7 @@ export default class LoginApp extends Component {
               onSubmit={e => this.formSubmitted(e)}
               noValidate
             >
-              <h3 className="Login-header Form-offset">{t`Sign in to Ipsator`}</h3>
+              <h3 className="Login-header Form-offset">{t`Sign in to Metabase`}</h3>
 
               {Settings.ssoEnabled() && (
                 <div className="mx4 mb4 py3 border-bottom relative">

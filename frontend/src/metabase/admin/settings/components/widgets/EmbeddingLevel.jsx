@@ -12,7 +12,7 @@ const PremiumTokenInput = ({ token, onChangeSetting }) => (
     <h3 className="mb1">
       {token
         ? t`Premium embedding enabled`
-        : t`Enter the token you bought from the Ipsator Store`}
+        : t`Enter the token you bought from the Metabase Store`}
     </h3>
     <SettingsInput
       onChange={value => onChangeSetting(PREMIUM_EMBEDDING_SETTING_KEY, value)}
@@ -25,7 +25,7 @@ const PremiumTokenInput = ({ token, onChangeSetting }) => (
 const PremiumExplanation = ({ showEnterScreen }) => (
   <div>
     <h2>Premium embedding</h2>
-    <p className="mt1">{t`Premium embedding lets you disable "Powered by Ipsator" on your embeded dashboards and questions.`}</p>
+    <p className="mt1">{t`Premium embedding lets you disable "Powered by Metabase" on your embeded dashboards and questions.`}</p>
     <div className="mt2 mb3">
       <a
         className="link mx1"

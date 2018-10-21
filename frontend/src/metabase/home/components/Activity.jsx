@@ -81,7 +81,7 @@ export default class Activity extends Component {
     } else if (user) {
       return user.first_name;
     } else {
-      return "Ipsator";
+      return "Metabase";
     }
   }
 
@@ -250,7 +250,7 @@ export default class Activity extends Component {
         break;
       case "install":
         description.userName = t`Hello World!`;
-        description.summary = t`Ipsator is up and running.`;
+        description.summary = t`Metabase is up and running.`;
         break;
       case "metric-create":
         if (item.model_exists) {

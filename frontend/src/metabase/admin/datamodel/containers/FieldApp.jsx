@@ -188,7 +188,7 @@ export default class FieldApp extends Component {
               <Section>
                 <SectionHeader
                   title={t`Visibility`}
-                  description={t`Where this field will appear throughout Ipsator`}
+                  description={t`Where this field will appear throughout Metabase`}
                 />
                 <FieldVisibilityPicker
                   triggerClasses={SelectClasses}
@@ -730,7 +730,7 @@ export class UpdateCachedFieldValues extends Component {
       <div>
         <SectionHeader
           title={t`Cached field values`}
-          description={t`Ipsator can scan the values for this field to enable checkbox filters in dashboards and questions.`}
+          description={t`Metabase can scan the values for this field to enable checkbox filters in dashboards and questions.`}
         />
         <ActionButton
           className="Button mr2"

@@ -207,7 +207,7 @@ export default class SchedulePicker extends Component {
         {textBeforeSendTime && (
           <div className="mt2 h4 text-bold text-grey-3 border-top pt2">
             {textBeforeSendTime} {hour === 0 ? 12 : hour}:00{" "}
-            {amPm ? "PM" : "AM"} {timezone}, {t`your Ipsator timezone`}.
+            {amPm ? "PM" : "AM"} {timezone}, {t`your Metabase timezone`}.
           </div>
         )}
       </div>

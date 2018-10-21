@@ -67,7 +67,7 @@ export default class NewsletterForm extends Component {
             <span
               className="inline-block"
               style={{ marginTop: 1 }}
-            >{t`Ipsator Newsletter`}</span>
+            >{t`Metabase Newsletter`}</span>
           </div>
         </div>
 
@@ -99,7 +99,7 @@ export default class NewsletterForm extends Component {
                 ) : (
                   <div className="text-success text-centered text-bold h3 p1">
                     <Icon className="mr2" name="check" size={16} />
-                    {t`You're subscribed. Thanks for using Ipsator!`}
+                    {t`You're subscribed. Thanks for using Metabase!`}
                   </div>
                 )}
               </div>

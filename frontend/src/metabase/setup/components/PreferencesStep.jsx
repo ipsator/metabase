@@ -73,7 +73,7 @@ export default class PreferencesStep extends Component {
           <StepTitle title={stepText} circleText={"3"} />
           <form onSubmit={this.formSubmitted.bind(this)} noValidate>
             <div className="Form-field Form-offset">
-              {t`In order to help us improve Ipsator, we'd like to collect certain data about usage through Google Analytics.`}{" "}
+              {t`In order to help us improve Metabase, we'd like to collect certain data about usage through Google Analytics.`}{" "}
               <a
                 className="link"
                 href={
@@ -95,14 +95,14 @@ export default class PreferencesStep extends Component {
                   onChange={this.toggleTracking.bind(this)}
                   className="inline-block"
                 />
-                <span className="ml1">{t`Allow Ipsator to anonymously collect usage events`}</span>
+                <span className="ml1">{t`Allow Metabase to anonymously collect usage events`}</span>
               </div>
             </div>
 
             {allowTracking ? (
               <div className="Form-field Form-offset">
                 <ul style={{ listStyle: "disc inside", lineHeight: "200%" }}>
-                  <li>{jt`Ipsator ${(
+                  <li>{jt`Metabase ${(
                     <span style={{ fontWeight: "bold" }}>never</span>
                   )} collects anything about your data or question results.`}</li>
                   <li>{t`All collection is completely anonymous.`}</li>
