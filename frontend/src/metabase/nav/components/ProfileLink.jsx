@@ -73,7 +73,7 @@ export default class ProfileLink extends Component {
         event: `Navbar;Profile Dropdown;About ${tag}`,
       },
       {
-        title: t`About Metabase`,
+        title: t`About Ipsator`,
         icon: null,
         action: () => this.openModal("about"),
         event: `Navbar;Profile Dropdown;About ${tag}`,
