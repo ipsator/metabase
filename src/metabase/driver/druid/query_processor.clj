@@ -10,7 +10,6 @@
             [clojure.tools.logging :as log]
             [metabase.driver.druid.js :as js]
             [metabase.mbql.util :as mbql.u]
-            [metabase.models.database :refer [Database]]
             [metabase.query-processor
              [interface :as i]
              [store :as qp.store]]
@@ -18,8 +17,7 @@
             [metabase.util :as u]
             [metabase.util
              [date :as du]
-             [i18n :as ui18n :refer [tru]]]
-            [toucan.db :as db])
+             [i18n :as ui18n :refer [tru]]])
   (:import java.util.TimeZone
            org.joda.time.DateTimeZone))
 
@@ -838,7 +836,7 @@
   (when limit
     (log/warn
      (u/format-color 'red
-         (tru "WARNING: Druid doenst allow limitSpec in timeseries queries. Ignoring the LIMIT clause."))))
+         (tru "WARNING: Druid does not allow limitSpec in time series queries. Ignoring the LIMIT clause."))))
   query-context)
 
 (defmethod handle-limit ::topN [_ {limit :limit} query-context]
@@ -1034,7 +1032,7 @@
     middleware                                   :middleware
     :as                                          query-context}]
   {:pre [query]}
-  (let [details       (db/select-one-field :details Database :id (u/get-id database-id))
+  (let [details       (:details (qp.store/database))
         query         (if (string? query)
                         (json/parse-string query keyword)
                         query)
@@ -1054,10 +1052,9 @@
     ;; rename any occurances of `:timestamp___int` to `:timestamp` in the results so the user doesn't know about our
     ;; behind-the-scenes conversion and apply any other post-processing on the value such as parsing some units to int
     ;; and rounding up approximate cardinality values.
-    {:columns   (->> columns
-                     (replace {:timestamp___int :timestamp :distinct___count :count})
-                     (map u/keyword->qualified-name))
-     :rows      (for [row (:results post-proc-map)]
-                  (for [getter getters]
-                    (getter row)))
-     :annotate? mbql?}))
+    {:columns (->> columns
+                   (replace {:timestamp___int :timestamp :distinct___count :count})
+                   (map u/keyword->qualified-name))
+     :rows    (for [row (:results post-proc-map)]
+                (for [getter getters]
+                  (getter row)))}))

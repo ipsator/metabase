@@ -22,9 +22,7 @@
             [metabase.mbql
              [schema :as mbql.s]
              [util :as mbql.u]]
-            [metabase.models
-             [database :refer [Database]]
-             [table :as table]]
+            [metabase.models.table :as table]
             [metabase.query-processor
              [store :as qp.store]
              [util :as qputil]]
@@ -246,7 +244,9 @@
                                       :let [parser-fn (type->parser (.getType field))]]
                                   (parser-fn *bigquery-timezone*)))
            columns             (for [column (table-schema->metabase-field-info schema)]
-                                 (set/rename-keys column {:base-type :base_type}))]
+                                 (-> column
+                                     (set/rename-keys {:base-type :base_type})
+                                     (dissoc :database-type)))]
        {:columns (map (comp u/keyword->qualified-name :name) columns)
         :cols    columns
         :rows    (for [^TableRow row (.getRows response)]
@@ -313,6 +313,8 @@
 ;; This record type used for BigQuery table and field identifiers, since BigQuery has some stupid rules about how to
 ;; quote them (tables are like `dataset.table` and fields are like `dataset.table`.`field`)
 ;; This implements HoneySql's ToSql protocol, so we can just output this directly in most of our QP code below
+;;
+;; TODO - this is totally unnecessary now, we can just override `->honeysql` for `Field` and `Table` instead. FIXME!
 (defrecord ^:private BigQueryIdentifier [dataset-name ; optional; will use (dataset-name-for-current-query) otherwise
                                          table-name
                                          field-name]
@@ -364,36 +366,19 @@
                          (str/replace #"(^\d)" "_$1"))]
     (subs replaced-str 0 (min 128 (count replaced-str)))))
 
-(s/defn ^:private bg-aggregate-name :- su/NonBlankString
+(s/defn ^:private bq-aggregate-name :- su/NonBlankString
+  "Return an approriate name for an `ag-clause`."
   [ag-clause :- mbql.s/Aggregation]
   (-> ag-clause annotate/aggregation-name format-custom-field-name))
 
-;; TODO - I think we should move `pre-alias-aggregations` into `mbql.util`
-(defn- unique-name-fn
-  "Return a function that used names with and returns a guaranteed unique name every time.
-
-    (let [unique-name (#'bigquery/unique-name-fn)]
-      [(unique-name \"count\")
-       (unique-name \"count\")])
-    ;; -> [\"count\", \"count_2\"]"
-  []
-  (let [aliases (atom {})]
-    (fn [original-name]
-      (let [total-count (get (swap! aliases update original-name #(if % (inc %) 1))
-                             original-name)]
-        (if (= total-count 1)
-          original-name
-          (recur (str original-name \_ total-count)))))))
-
-(defn- pre-alias-aggregations
+(s/defn ^:private pre-alias-aggregations
   "Expressions are not allowed in the order by clauses of a BQ query. To sort by a custom expression, that custom
   expression must be aliased from the order by. This code will find the aggregations and give them a name if they
   don't already have one. This name can then be used in the order by if one is present."
-  [outer-query]
-  (let [unique-name (unique-name-fn)]
-    (mbql.u/replace-in outer-query [:query :aggregation]
-      [:named ag ag-name]       [:named ag (unique-name ag-name)]
-      [(_ :guard keyword?) & _] [:named &match (unique-name (bg-aggregate-name &match))])))
+  [{{aggregations :aggregation} :query, :as outer-query}]
+  (if-not (seq aggregations)
+    outer-query
+    (update-in outer-query [:query :aggregation] (partial mbql.u/pre-alias-and-uniquify-aggregations bq-aggregate-name))))
 
 ;; These provide implementations of `->honeysql` that prevent HoneySQL from converting forms to prepared statement
 ;; parameters (`?` symbols)
@@ -453,12 +438,13 @@
 
 (defn- field->identifier
   "Generate appropriate identifier for a Field for SQL parameters. (NOTE: THIS IS ONLY USED FOR SQL PARAMETERS!)"
-  ;; TODO - Making 2 DB calls for each field to fetch its dataset is inefficient and makes me cry, but this method is
+  ;; TODO - Making a DB call for each field to fetch its Table is inefficient and makes me cry, but this method is
   ;; currently only used for SQL params so it's not a huge deal at this point
+  ;;
   ;; TODO - we should make sure these are in the QP store somewhere and then could at least batch the calls
   [{table-id :table_id, :as field}]
-  (let [{table-name :name, database-id :db_id} (db/select-one [table/Table :name :db_id], :id (u/get-id table-id))
-        details                                (db/select-one-field :details Database, :id (u/get-id database-id))]
+  (let [table-name (db/select-one-field :name table/Table :id (u/get-id table-id))
+        details    (:details (qp.store/database))]
     (map->BigQueryIdentifier {:dataset-name (:dataset-id details), :table-name table-name, :field-name (:name field)})))
 
 (defn- field-clause->field [field-clause]
@@ -539,7 +525,7 @@
     {source-table-id :source-table} :query
     :as                             outer-query}]
   {:pre [(integer? database-id)]}
-  (let [dataset-id         (:dataset-id (db/select-one-field :details Database :id (u/get-id database-id)))
+  (let [dataset-id         (-> (qp.store/database) :details :dataset-id)
         aliased-query      (pre-alias-aggregations outer-query)
         {table-name :name} (qp.store/table source-table-id)]
     (assert (seq dataset-id))
@@ -556,18 +542,16 @@
     (time/time-zone-for-id (.getID jvm-tz))
     time/utc))
 
-(defn- execute-query [{database-id                                            :database
-                       {sql :query, params :params, :keys [table-name mbql?]} :native
+(defn- execute-query [{{sql :query, params :params, :keys [table-name mbql?]} :native
                        :as                                                    outer-query}]
-  (let [database (db/select-one [Database :id :details], :id (u/get-id database-id))]
+  (let [database (qp.store/database)]
     (binding [*bigquery-timezone* (effective-query-timezone database)]
       (let [sql     (str "-- " (qputil/query->remark outer-query) "\n" (if (seq params)
                                                                          (unprepare/unprepare (cons sql params))
                                                                          sql))
-            results (process-native* database sql)
-            results (cond->> results
-                      mbql? (post-process-mbql table-name))]
-        (assoc results :annotate? mbql?)))))
+            results (process-native* database sql)]
+        (cond->> results
+          mbql? (post-process-mbql table-name))))))
 
 
 ;; BigQuery doesn't return a timezone with it's time strings as it's always UTC, JodaTime parsing also defaults to UTC

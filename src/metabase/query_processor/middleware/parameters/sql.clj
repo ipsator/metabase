@@ -154,6 +154,8 @@
 (s/defn ^:private default-value-for-dimension :- (s/maybe DimensionValue)
   "Return the default value for a Dimension (Field Filter) param defined by the map TAG, if one is set."
   [tag :- TagParam]
+  (when (and (:required tag) (not (:default tag)))
+    (throw (Exception. (str (tru "''{0}'' is a required param." (:display-name tag))))))
   (when-let [default (:default tag)]
     {:type   (:widget-type tag :dimension)             ; widget-type is the actual type of the default value if set
      :target [:dimension [:template-tag (:name tag)]]
@@ -354,7 +356,7 @@
 (s/defn ^:private honeysql->replacement-snippet-info :- ParamSnippetInfo
   "Convert X to a replacement snippet info map by passing it to HoneySQL's `format` function."
   [x]
-  (let [[snippet & args] (hsql/format x, :quoting (sql/quote-style qp.i/*driver*))]
+  (let [[snippet & args] (hsql/format x, :quoting (sql/quote-style qp.i/*driver*), :allow-dashed-names? true)]
     {:replacement-snippet     snippet
      :prepared-statement-args args}))
 
